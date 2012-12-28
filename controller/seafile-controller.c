@@ -1,5 +1,7 @@
 /* -*- Mode: C; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 
+#include "common.h"
+
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -289,7 +291,7 @@ check_heartbeat (void *data)
         try_kill_process(PID_SERVER);
         seaf_message ("seaf-server need restart...\n");
         start_seaf_server ();
-        ctl->last_hb[HB_SEAFILE_SERVER] = now;
+        ctl->last_hb[HB_SEAFILE_SERVER] = time(NULL);
 
     }
 
@@ -298,7 +300,7 @@ check_heartbeat (void *data)
         try_kill_process(PID_MONITOR);
         seaf_message ("seaf-mon need restart...\n");
         start_seaf_monitor ();
-        ctl->last_hb[HB_SEAFILE_MONITOR] = now;
+        ctl->last_hb[HB_SEAFILE_MONITOR] = time(NULL);
     }
 
     return TRUE;
@@ -454,7 +456,7 @@ static void
 init_pidfile_path (SeafileController *ctl)
 {
     char tmp[] = "XXXXXX";
-    char buf[PATH_MAX];
+    char buf[SEAF_PATH_MAX];
     int pid = (int)getpid();
 
     if (!mktemp(tmp))

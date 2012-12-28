@@ -22,10 +22,6 @@
 #define DEBUG_FLAG SEAFILE_DEBUG_SYNC
 #include "log.h"
 
-#ifndef PATH_MAX
-#define PATH_MAX MAX_PATH
-#endif
-
 #define DEFAULT_SYNC_INTERVAL 30 /* 30s */
 #define CHECK_SYNC_INTERVAL  1000 /* 1s */
 #define MAX_RUNNING_SYNC_TASKS 5
@@ -457,6 +453,8 @@ static const char *sync_error_str[] = {
     "Failed to start download.",
     "Error occured in download.",
     "No such repo on relay.",
+    "Repo is damaged on relay.",
+    "Failed to index files.",
     "Unknown error.",
 };
 
@@ -683,14 +681,15 @@ update_sync_status (SyncTask *task)
     if (!local) {
         seaf_warning ("[sync-mgr] Branch local not found for repo %s(%.8s).\n",
                    repo->name, repo->id);
-        info->bad_local_branch = TRUE;
         seaf_sync_manager_set_task_error (task, SYNC_ERROR_DATA_CORRUPT);
         return;
     }
     master = seaf_branch_manager_get_branch (
         seaf->branch_mgr, info->repo_id, "master");
 
-    if (info->deleted_on_relay) {
+    if (info->repo_corrupted) {
+        seaf_sync_manager_set_task_error (task, SYNC_ERROR_REPO_CORRUPT);
+    } else if (info->deleted_on_relay) {
         /* First upload. */
         if (!master)
             start_upload_if_necessary (task);
@@ -699,7 +698,7 @@ update_sync_status (SyncTask *task)
          */
         else {
             seaf_sync_manager_set_task_error (task, SYNC_ERROR_NOREPO);
-            seaf_debug ("remove repo %s(%.8s) since it's deleted on relay",
+            seaf_debug ("remove repo %s(%.8s) since it's deleted on relay\n",
                         repo->name, repo->id);
             seaf_mq_manager_publish_notification (seaf->mq_mgr,
                                                   "repo.deleted_on_relay",
@@ -849,6 +848,7 @@ check_net_state (void *data)
 struct CommitResult {
     SyncTask *task;
     gboolean changed;
+    gboolean success;
 };
 
 static void *
@@ -867,6 +867,7 @@ commit_job (void *vtask)
     pthread_mutex_lock (&repo->lock);
 
     res->changed = TRUE;
+    res->success = TRUE;
 
     gboolean unmerged = seaf_repo_is_index_unmerged (repo);
     char *remote_name = g_strdup("other");
@@ -892,6 +893,7 @@ commit_job (void *vtask)
     if (seaf_repo_index_add (repo, "") < 0) {
         seaf_warning ("[Sync mgr] Failed to add in repo %s(%.8s).\n",
                       repo->name, repo->id);
+        res->success = FALSE;
         goto out;
     }
 
@@ -900,6 +902,7 @@ commit_job (void *vtask)
     if (commit_id == NULL && error != NULL) {
         seaf_warning ("[Sync mgr] Failed to commit to repo %s(%.8s).\n",
                       repo->name, repo->id);
+        res->success = FALSE;
     } else if (commit_id == NULL) {
         res->changed = FALSE;
     }
@@ -930,6 +933,12 @@ commit_job_done (void *vres)
         return;
     }
 
+    if (!res->success) {
+        seaf_sync_manager_set_task_error (res->task, SYNC_ERROR_COMMIT);
+        g_free (res);
+        return;
+    }
+
     /* If a new dir or file is added, we need to add watch for it.
      * This is not automatically handled by inotify, we need to refresh
      * the watch list.
@@ -954,8 +963,8 @@ commit_job_done (void *vres)
         }
     }
 
-    /* Nothing committed, no need to sync. */
-    if (!res->changed) {
+    /* If nothing committed and is not manual sync, no need to sync. */
+    if (!res->changed && !res->task->force_upload) {
         transition_sync_state (res->task, SYNC_STATE_DONE);
         g_free (res);
         return;

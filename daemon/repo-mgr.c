@@ -298,6 +298,10 @@ should_ignore(const char *filename, void *data)
 {
     GPatternSpec **spec = ignore_patterns;
 
+    /* Ignore file/dir if its name is too long. */
+    if (strlen(filename) >= SEAF_DIR_NAME_LEN)
+        return TRUE;
+
     while (*spec) {
         if (g_pattern_match_string(*spec, filename))
             return TRUE;
@@ -370,6 +374,7 @@ add_recursive (struct index_state *istate,
     char *subpath;
     struct stat st;
     int n;
+    int ret = 0;
 
     if (has_trailing_space (path)) {
         /* Ignore files/dir whose path has trailing spaces. It would cause
@@ -386,8 +391,8 @@ add_recursive (struct index_state *istate,
     }
 
     if (S_ISREG(st.st_mode)) {
-        int ret = add_to_index (istate, path, full_path,
-                                &st, 0, crypt, index_cb);
+        ret = add_to_index (istate, path, full_path,
+                            &st, 0, crypt, index_cb);
         g_free (full_path);
         return ret;
     }
@@ -402,20 +407,27 @@ add_recursive (struct index_state *istate,
         errno = 0;
         n = 0;
         while ((dname = g_dir_read_name(dir)) != NULL) {
+            /* TODO: Notify user if a file's name is too long. */
+
             if (should_ignore(dname, NULL))
                 continue;
 
             ++n;
 
             subpath = g_build_path (PATH_SEPERATOR, path, dname, NULL);
-            add_recursive (istate, worktree, subpath, crypt, ignore_empty_dir);
+            ret = add_recursive (istate, worktree, subpath,
+                                 crypt, ignore_empty_dir);
             g_free (subpath);
+            if (ret < 0)
+                break;
         }
         g_dir_close (dir);
         if (errno != 0) {
             g_warning ("Failed to read dir %s: %s.\n", path, strerror(errno));
             goto bad;
         }
+        if (ret < 0)
+            goto bad;
 
         if (n == 0 && !ignore_empty_dir) {
             g_debug ("Adding empty dir %s\n", path);
@@ -459,7 +471,7 @@ remove_deleted (struct index_state *istate, const char *worktree, const char *pr
 {
     struct cache_entry **ce_array = istate->cache;
     struct cache_entry *ce;
-    char path[PATH_MAX];
+    char path[SEAF_PATH_MAX];
     unsigned int i;
     int len = strlen(prefix);
     struct stat st;
@@ -470,7 +482,7 @@ remove_deleted (struct index_state *istate, const char *worktree, const char *pr
         /* Only check entries under 'prefix'. */
         if (strncmp (ce->name, prefix, len) != 0)
             continue;
-        snprintf (path, PATH_MAX, "%s/%s", worktree, ce->name);
+        snprintf (path, SEAF_PATH_MAX, "%s/%s", worktree, ce->name);
         ret = g_lstat (path, &st);
 
         if (S_ISDIR (ce->ce_mode)) {
@@ -489,7 +501,7 @@ int
 seaf_repo_index_add (SeafRepo *repo, const char *path)
 {
     SeafRepoManager *mgr = repo->manager;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     struct index_state istate;
     SeafileCrypt *crypt = NULL;
 
@@ -512,7 +524,7 @@ seaf_repo_index_add (SeafRepo *repo, const char *path)
         return -1;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         g_warning ("Failed to load index.\n");
         return -1;
@@ -555,14 +567,14 @@ seaf_repo_index_worktree_files (const char *repo_id,
                                 const char *passwd,
                                 char *root_id)
 {
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     struct index_state istate;
     unsigned char key[16], iv[16];
     SeafileCrypt *crypt = NULL;
     struct cache_tree *it = NULL;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", seaf->repo_mgr->index_dir, repo_id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", seaf->repo_mgr->index_dir, repo_id);
 
     /* If the repo is encrypted and old index file exists, delete it.
      * This is because the user may enter a wrong password at first then
@@ -688,12 +700,12 @@ seaf_repo_index_rm (SeafRepo *repo, const char *path)
 {
     GList *p, *rmlist = NULL;
     SeafRepoManager *mgr = repo->manager;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     struct index_state istate;
     int i, pathlen;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         g_warning ("Failed to load index.\n");
         goto error;
@@ -749,13 +761,13 @@ seaf_repo_status (SeafRepo *repo)
     struct index_state istate;
     GList *results = NULL;
     char *res_str;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     
     if (!check_worktree_common (repo))
         return NULL;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         repo->index_corrupted = TRUE;
         g_warning ("Failed to load index.\n");
@@ -799,13 +811,13 @@ seaf_repo_is_worktree_changed (SeafRepo *repo)
     SeafRepoManager *mgr = repo->manager;
     GList *res = NULL, *p;
     struct index_state istate;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
 
     if (!check_worktree_common (repo))
         return FALSE;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         repo->index_corrupted = TRUE;
         g_warning ("Failed to load index.\n");
@@ -989,14 +1001,14 @@ seaf_repo_is_index_unmerged (SeafRepo *repo)
 {
     SeafRepoManager *mgr = repo->manager;
     struct index_state istate;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     gboolean ret = FALSE;
 
     if (!repo->head)
         return FALSE;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         g_warning ("Failed to load index.\n");
         return FALSE;
@@ -1070,14 +1082,14 @@ seaf_repo_index_commit (SeafRepo *repo, const char *desc,
     SeafRepoManager *mgr = repo->manager;
     struct index_state istate;
     struct cache_tree *it;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     char commit_id[41];
 
     if (!check_worktree_common (repo))
         return NULL;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         g_warning ("Failed to load index.\n");
         g_set_error (error, SEAFILE_DOMAIN, SEAF_ERR_INTERNAL, "Internal data structure error");
@@ -1170,7 +1182,7 @@ seaf_repo_checkout_commit (SeafRepo *repo, SeafCommit *commit, gboolean recover_
                            char **error)
 {
     SeafRepoManager *mgr = repo->manager;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     struct tree_desc trees[2];
     struct unpack_trees_options topts;
     struct index_state istate;
@@ -1179,7 +1191,7 @@ seaf_repo_checkout_commit (SeafRepo *repo, SeafCommit *commit, gboolean recover_
     int ret = 0;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         g_warning ("Failed to load index.\n");
         return -1;
@@ -1288,8 +1300,8 @@ seaf_repo_checkout (SeafRepo *repo, const char *worktree, char **error)
     GString *err_msgs;
 
     /* remove original index */
-    char index_path[PATH_MAX];
-    snprintf (index_path, PATH_MAX, "%s/%s", repo->manager->index_dir, repo->id);
+    char index_path[SEAF_PATH_MAX];
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", repo->manager->index_dir, repo->id);
     g_unlink (index_path);
 
     branch = seaf_branch_manager_get_branch (seaf->branch_mgr,
@@ -1413,7 +1425,7 @@ int
 seaf_repo_reset (SeafRepo *repo, const char *commit_id, char **error)
 {
     SeafRepoManager *mgr = repo->manager;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     struct index_state istate;
     int ret = 0;
     SeafCommit *commit;
@@ -1423,7 +1435,7 @@ seaf_repo_reset (SeafRepo *repo, const char *commit_id, char **error)
         return -1;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         *error = g_strdup("Failed to load index.");
         g_warning ("Failed to load index.\n");
@@ -1463,7 +1475,7 @@ int
 seaf_repo_revert (SeafRepo *repo, const char *commit_id, char **error)
 {
     SeafRepoManager *mgr = repo->manager;
-    char index_path[PATH_MAX];
+    char index_path[SEAF_PATH_MAX];
     struct index_state istate;
     int ret = 0;
     SeafCommit *commit;
@@ -1473,7 +1485,7 @@ seaf_repo_revert (SeafRepo *repo, const char *commit_id, char **error)
         return -1;
 
     memset (&istate, 0, sizeof(istate));
-    snprintf (index_path, PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
+    snprintf (index_path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo->id);
     if (read_index_from (&istate, index_path) < 0) {
         *error = g_strdup("Failed to load index.");
         g_warning ("Failed to load index.\n");
@@ -1940,8 +1952,8 @@ remove_repo_ondisk (SeafRepoManager *mgr, const char *repo_id)
     sqlite_query_exec (mgr->priv->db, sql);
 
     /* remove index */
-    char path[PATH_MAX];
-    snprintf (path, PATH_MAX, "%s/%s", mgr->index_dir, repo_id);
+    char path[SEAF_PATH_MAX];
+    snprintf (path, SEAF_PATH_MAX, "%s/%s", mgr->index_dir, repo_id);
     if (g_unlink (path) < 0) {
         if (errno != ENOENT) {
             g_warning("Cannot delete index file: %s", strerror(errno));
@@ -2446,7 +2458,7 @@ load_repo (SeafRepoManager *manager, const char *repo_id)
     /* If repo head is set but failed to load branch or commit. */
     if (repo->is_corrupted) {
         seaf_repo_free (repo);
-        remove_repo_ondisk (manager, repo_id);
+        /* remove_repo_ondisk (manager, repo_id); */
         return NULL;
     }
 
@@ -2479,7 +2491,7 @@ load_repo (SeafRepoManager *manager, const char *repo_id)
 
     if (repo->is_corrupted) {
         seaf_repo_free (repo);
-        remove_repo_ondisk (manager, repo_id);
+        /* remove_repo_ondisk (manager, repo_id); */
         return NULL;
     }
 
@@ -2512,9 +2524,12 @@ load_repo (SeafRepoManager *manager, const char *repo_id)
     repo->email = load_repo_property (manager, repo->id, REPO_PROP_EMAIL);
     repo->token = load_repo_property (manager, repo->id, REPO_PROP_TOKEN);
     
-    /* TODO: check worktree valid, for example, if worktree was deleted,
-     * the corresponding index should be deleted too.
-     */
+    if (seaf_repo_check_worktree (repo) < 0) {
+        seaf_message ("Worktree for repo \"%s\" is invalid, delte it.\n",
+                      repo->name);
+        seaf_repo_manager_del_repo (manager, repo);
+        return NULL;
+    }
 
     avl_insert (manager->priv->repo_tree, repo);
     send_wktree_notification (repo, TRUE);
@@ -2986,7 +3001,7 @@ seaf_repo_manager_add_checkout_task (SeafRepoManager *mgr,
 
     CheckoutTask *task = g_new0 (CheckoutTask, 1);
     memcpy (task->repo_id, repo->id, 41);
-    g_assert (strlen(worktree) < PATH_MAX);
+    g_assert (strlen(worktree) < SEAF_PATH_MAX);
     strcpy (task->worktree, worktree);
 
     g_hash_table_insert (mgr->priv->checkout_tasks_hash,

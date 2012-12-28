@@ -10,6 +10,8 @@
 #include <config.h>
 #endif
 
+#include "common.h"
+
 #include "index.h"
 #include "../seafile-crypt.h"
 /* #include "../vc-utils.h" */
@@ -884,10 +886,10 @@ static int add_index_entry_with_check(struct index_state *istate, struct cache_e
 
     if (!ok_to_add)
         return -1;
-    if (!verify_path(ce->name)) {
-        g_warning("Invalid path '%s'\n", ce->name);
-        return -1;
-    }
+    /* if (!verify_path(ce->name)) { */
+    /*     g_warning("Invalid path '%s'\n", ce->name); */
+    /*     return -1; */
+    /* } */
 
     /* if (!skip_df_check && */
     /*     check_file_directory_conflict(istate, ce, pos, ok_to_replace)) { */
@@ -1041,10 +1043,10 @@ struct cache_entry *make_cache_entry(unsigned int mode,
     int size, len;
     struct cache_entry *ce;
 
-    if (!verify_path(path)) {
-        g_warning("Invalid path '%s'", path);
-        return NULL;
-    }
+    /* if (!verify_path(path)) { */
+    /*     g_warning("Invalid path '%s'", path); */
+    /*     return NULL; */
+    /* } */
 
     len = strlen(path);
     size = cache_entry_size(len);
@@ -1203,7 +1205,7 @@ int index_fd(unsigned char *sha1, int fd, struct stat *st,
 int index_path(unsigned char *sha1, const char *path, struct stat *st)
 {
     int fd;
-    char buf[PATH_MAX];
+    char buf[SEAF_PATH_MAX];
     int pathlen;
 
     switch (st->st_mode & S_IFMT) {
@@ -1219,7 +1221,7 @@ int index_path(unsigned char *sha1, const char *path, struct stat *st)
         break;
 #ifndef WIN32        
     case S_IFLNK:
-        pathlen = readlink(path, buf, PATH_MAX);
+        pathlen = readlink(path, buf, SEAF_PATH_MAX);
         if (pathlen != st->st_size) {
             char *errstr = strerror(errno);
             g_warning("readlink(\"%s\"): %s\n", path, errstr);
