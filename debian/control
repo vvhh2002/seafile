@@ -1,7 +1,7 @@
-Source: seafile
+Source: seafile-client
 Section: net
 Priority: extra
-Maintainer: Lingtao Pan <freeplant@gmail.com>
+Maintainer: Shuai Lin <linshuai2012@gmail.com>
 Build-Depends:
 	debhelper (>= 7),
 	autotools-dev,
@@ -11,11 +11,12 @@ Build-Depends:
 	libglib2.0-dev,
 	libevent-dev,
 	uuid-dev,
-	libgtk2.0-dev
+	libgtk2.0-dev,
+	valac
 Standards-Version: 3.9.4
-Homepage: http://seafile.com
+Homepage: https://github.com/haiwen/seafile
 
-Package: seafile
+Package: seafile-client
 Architecture: any
 Depends:
 	${shlibs:Depends},
@@ -26,18 +27,18 @@ Depends:
 	libuuid1,
 	libssl0.9.8 | libssl1.0.0,
 	libevent-2.0-5,
+	python (>= 2.6),
 	python-webpy,
 	python-mako,
 	python-simplejson
-Description: Client of seafile, an online file storage and collaboration tool
- Seafile enables you to build private cloud for file sharing and collaboration
- among team members in your company/organization. This is the Linux desktop
- client of the seafile system.
+Description: online file storage and collaboration tool - client
+ This package provides a desktop client for Seafile, a tool for building
+ private clouds for file sharing and collaboration among team members.
  .
- First you create a file library in the web and upload files to it. Then you
- share it into a team or with another user.
+ Users first create a file library on the web and upload files to it. Then
+ they can share it with other users or teams.
  .
- File libraries can also be synchronized among computers and mobile devices. You
- download a library to your PC. Whenever you add, delete or edit a file, the
- latest version be uploaded to the server automatically and then be synchronized
- to everyone's computer.
+ File libraries can also be synchronized among computers and mobile
+ devices. Whenever a file is added, deleted, or modified in a downloaded
+ file library, Seafile automatically uploads the latest version to the
+ server and then synchronizes it to everyone's computer.

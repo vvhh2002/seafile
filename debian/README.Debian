@@ -1,6 +1,9 @@
 Seafile
 -------
+This is the debian package for the seafile client.
+For more information about Seafile, please visit:
 
-For more information about Seafile, please visit http://seafile.com
+    http://www.seafile.com
+    https://github.com/haiwen/seafile/
 
- -- plt <freeplant@gmail.com>  Fri, 30 March 2012 16:43:10 +0800
+ -- Shuai Lin <linshuai2012@gmail.com>  Wed, 30 January 2013 19:00:32 +0800
