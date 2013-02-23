@@ -19,6 +19,8 @@
 #define DEFAULT_MAX_UPLOAD_SIZE 100 * ((gint64)1 << 20) /* 100MB */
 #define DEFAULT_MAX_DOWNLOAD_DIR_SIZE 100 * ((gint64)1 << 20) /* 100MB */
 
+static char *pidfile = NULL;
+
 static char *config_dir = NULL;
 static char *seafile_dir = NULL;
 static char *bind_addr = "0.0.0.0";
@@ -31,7 +33,7 @@ static char *privkey = NULL;
 CcnetClient *ccnet_client;
 SeafileSession *seaf;
 
-static const char *short_opts = "hvfc:d:t:l:g:G:D:";
+static const char *short_opts = "hvfc:d:t:l:g:G:D:P:";
 static const struct option long_opts[] = {
     { "help", no_argument, NULL, 'h', },
     { "version", no_argument, NULL, 'v', },
@@ -43,6 +45,8 @@ static const struct option long_opts[] = {
     { "ccnet-debug-level", required_argument, NULL, 'g' },
     { "http-debug-level", required_argument, NULL, 'G' },
     { "debug", required_argument, NULL, 'D' },
+    { "pidfile", required_argument, NULL, 'P' },
+    { NULL, 0, NULL, 0}
 };
 
 static void usage ()
@@ -143,6 +147,49 @@ load_httpserver_config (SeafileSession *session)
     }
 }
 
+static void
+remove_pidfile (const char *pidfile)
+{
+    if (pidfile) {
+        g_unlink (pidfile);
+    }
+}
+
+static int
+write_pidfile (const char *pidfile_path)
+{
+    if (!pidfile_path)
+        return -1;
+
+    pid_t pid = getpid();
+
+    FILE *pidfile = fopen(pidfile_path, "w");
+    if (!pidfile) {
+        seaf_warning ("Failed to fopen() pidfile %s: %s\n",
+                      pidfile_path, strerror(errno));
+        return -1;
+    }
+
+    char buf[32];
+    snprintf (buf, sizeof(buf), "%d\n", pid);
+    if (fputs(buf, pidfile) < 0) {
+        seaf_warning ("Failed to write pidfile %s: %s\n",
+                      pidfile_path, strerror(errno));
+        return -1;
+    }
+
+    fflush (pidfile);
+    fclose (pidfile);
+    return 0;
+}
+
+static void
+on_httpserver_exit(void)
+{
+    if (pidfile)
+        remove_pidfile (pidfile);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -189,6 +236,9 @@ main(int argc, char *argv[])
             break;
         case 'D':
             debug_str = optarg;
+            break;
+        case 'P':
+            pidfile = optarg;
             break;
         default:
             usage();
@@ -272,6 +322,14 @@ main(int argc, char *argv[])
         g_warning ("Could not bind socket: %s\n", strerror(errno));
         exit(-1);
     }
+
+    if (pidfile) {
+        if (write_pidfile (pidfile) < 0) {
+            seaf_message ("failed to write pidfile\n");
+            return -1;
+        }
+    }
+    atexit (on_httpserver_exit);
 
     event_base_loop(evbase, 0);
 

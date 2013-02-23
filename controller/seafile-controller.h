@@ -24,35 +24,16 @@
 
 typedef struct _SeafileController SeafileController;
 
-enum {
-    HB_SEAFILE_SERVER = 0,
-    HB_SEAFILE_MONITOR,
-    N_HEARTBEAT
-};
-
-enum {
-    PID_CCNET = 0,
-    PID_SERVER,
-    PID_MONITOR,
-    N_PID
-};
-
 struct _SeafileController {
-    char *bin_dir;
-    char *config_dir;
+    char *ccnet_dir;
     char *seafile_dir;
     
-    CcnetClient         *client;
-    CcnetClient         *sync_client;
-    CcnetMqclientProc   *mqclient_proc;
-
-    guint               hearbeat_timer;
-    guint               client_io_id; 
+    struct _CcnetClient *client;
+    guint               check_timer;
     /* Decide whether to start seaf-server in cloud mode  */
     gboolean            cloud_mode;
 
-    time_t              last_hb[N_HEARTBEAT];
-    int                 pid[N_PID];
-    char                *pidfile[N_PID];
+    struct _SeafApplication *ccnet_app;
+    GList               *applications;
 };
 #endif
