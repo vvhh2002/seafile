@@ -10,6 +10,7 @@ AM_CFLAGS = \
 	@GLIB2_CFLAGS@ \
 	@MYSQL_CFLAGS@ \
 	@ZDB_CFLAGS@ \
+	@MSVC_CFLAGS@ \
 	-Wall
 
 noinst_HEADERS = seafile-controller.h ../common/log.h
@@ -19,6 +20,6 @@ seafile_controller_SOURCES = seafile-controller.c ../common/log.c
 seafile_controller_LDADD = @CCNET_LIBS@ \
 	$(top_builddir)/lib/libseafile_common.la \
 	@GLIB2_LIBS@  @GOBJECT_LIBS@ -lssl @LIB_RT@ @LIB_UUID@ -levent \
-	@SEARPC_LIBS@
+	@SEARPC_LIBS@ ${LIB_WS32}
 
 seafile_controller_LDFLAGS = @STATIC_COMPILE@ @SERVER_PKG_RPATH@

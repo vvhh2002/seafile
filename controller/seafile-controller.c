@@ -3,7 +3,9 @@
 #include "common.h"
 
 #include <sys/types.h>
+#ifndef WIN32
 #include <sys/wait.h>
+#endif
 #include <signal.h>
 #include <unistd.h>
 #include <errno.h>
@@ -48,6 +50,7 @@ controller_exit (int code)
     exit(code);
 }
 
+#ifndef WIN32
 /* returns the pid of the newly created process */
 static int
 spawn_process (char *argv[])
@@ -73,10 +76,11 @@ spawn_process (char *argv[])
             seaf_warning ("error when fork %s: %s\n", argv[0], strerror(errno));
         else
             seaf_message ("spawned %s, pid %d\n", argv[0], pid);
-        
+
         return (int)pid;
     }
 }
+#endif
 
 /* If --bin-dir is specified, modify the <PATH> env before spawning any
  * process. */
@@ -105,20 +109,30 @@ start_ccnet_server ()
         return -1;
 
     seaf_message ("starting ccnet-server ...\n");
-
+#ifndef WIN32
     char *argv[] = {
         "ccnet-server",
         "-c", ctl->config_dir,
         "-d",
         "-P", ctl->pidfile[PID_CCNET],
         NULL};
-    
+
     int pid = spawn_process (argv);
     if (pid <= 0) {
         seaf_warning ("Failed to spawn ccnet-server\n");
         return -1;
     }
+#else
+    char buf[4096];
+    snprintf (buf, sizeof(buf),
+              "ccnet-server.exe -c \"%s\" -P \"%s\"",
+              ctl->config_dir, ctl->pidfile[PID_CCNET]);
 
+    if (win32_spawn_process (buf, NULL) < 0) {
+        seaf_warning ("Failed to fork ccnet.exe\n");
+        return -1;
+    }
+#endif
     return 0;
 }
 
@@ -129,7 +143,7 @@ start_seaf_server ()
         return -1;
 
     seaf_message ("starting seaf-server ...\n");
-
+#ifndef WIN32
     char *argv[] = {
         "seaf-server",
         "-c", ctl->config_dir,
@@ -141,13 +155,23 @@ start_seaf_server ()
     if (!ctl->cloud_mode) {
         argv[7] = NULL;
     }
-    
+
     int pid = spawn_process (argv);
     if (pid <= 0) {
         seaf_warning ("Failed to spawn seaf-server\n");
         return -1;
     }
+#else
+    char buf[4096];
+    snprintf (buf, sizeof(buf),
+              "seaf-server.exe -c \"%s\" -d \"%s\" -P \"%s\" -C",
+              ctl->config_dir, ctl->seafile_dir, ctl->pidfile[PID_SERVER]);
 
+    if (win32_spawn_process (buf, NULL) < 0) {
+        seaf_warning ("Failed to fork ccnet.exe\n");
+        return -1;
+    }
+#endif
     return 0;
 }
 
@@ -158,20 +182,30 @@ start_seaf_monitor ()
         return -1;
 
     seaf_message ("starting seaf-mon ...\n");
-
+#ifndef WIN32
     char *argv[] = {
         "seaf-mon",
         "-c", ctl->config_dir,
         "-d", ctl->seafile_dir,
         "-P", ctl->pidfile[PID_MONITOR],
         NULL};
-    
+
     int pid = spawn_process (argv);
     if (pid <= 0) {
         seaf_warning ("Failed to spawn seaf-mon\n");
         return -1;
     }
+#else
+    char buf[4096];
+    snprintf (buf, sizeof(buf),
+              "seaf-mon.exe -c \"%s\" -d \"%s\" -P \"%s\"",
+              ctl->config_dir, ctl->seafile_dir, ctl->pidfile[PID_SERVER]);
 
+    if (win32_spawn_process (buf, NULL) < 0) {
+        seaf_warning ("Failed to fork ccnet.exe\n");
+        return -1;
+    }
+#endif
     return 0;
 }
 
@@ -182,9 +216,9 @@ static void mq_cb (CcnetMessage *msg, void *data)
     time_t now = time (NULL);
 
     if (IS_APP_MSG(msg, "seaf_server.heartbeat")) {
-        
+
         ctl->last_hb[HB_SEAFILE_SERVER] = now;
-        
+
     } else if (IS_APP_MSG(msg, "seaf_mon.heartbeat")) {
 
         ctl->last_hb[HB_SEAFILE_MONITOR] = now;
@@ -195,13 +229,13 @@ static int
 start_mq_client ()
 {
     seaf_message ("starting mq client ...\n");
-    
+
     CcnetMqclientProc *mqclient_proc;
 
     mqclient_proc = (CcnetMqclientProc *)
         ccnet_proc_factory_create_master_processor
         (ctl->client->proc_factory, "mq-client");
-    
+
     if (!mqclient_proc) {
         seaf_warning ("Failed to create mqclient proc.\n");
         return -1;
@@ -261,17 +295,19 @@ read_pid_from_pidfile (const char *pidfile)
     return pid;
 }
 
+#ifndef WIN32
 static void
 try_kill_process(int which)
 {
     if (which < 0 || which >= N_PID)
         return;
-    
+
     char *pidfile = ctl->pidfile[which];
     int pid = read_pid_from_pidfile(pidfile);
     if (pid > 0)
         kill((pid_t)pid, SIGTERM);
 }
+#endif
 
 static gboolean
 check_heartbeat (void *data)
@@ -285,8 +321,11 @@ check_heartbeat (void *data)
     }
 
     if (now - ctl->last_hb[HB_SEAFILE_SERVER] > MAX_HEARTBEAT_LIMIT) {
-
+#ifndef WIN32
         try_kill_process(PID_SERVER);
+#else
+        win32_kill_process("seaf-server.exe");
+#endif
         seaf_message ("seaf-server need restart...\n");
         start_seaf_server ();
         ctl->last_hb[HB_SEAFILE_SERVER] = time(NULL);
@@ -294,8 +333,11 @@ check_heartbeat (void *data)
     }
 
     if (now - ctl->last_hb[HB_SEAFILE_MONITOR] > MAX_HEARTBEAT_LIMIT) {
-
+#ifndef WIN32
         try_kill_process(PID_MONITOR);
+#else
+        win32_kill_process("seaf-mon.exe");
+#endif
         seaf_message ("seaf-mon need restart...\n");
         start_seaf_monitor ();
         ctl->last_hb[HB_SEAFILE_MONITOR] = time(NULL);
@@ -445,9 +487,15 @@ stop_ccnet_server ()
     GError *error = NULL;
     ccnet_client_send_cmd (ctl->sync_client, "shutdown", &error);
 
+#ifndef WIN32
     try_kill_process(PID_CCNET);
     try_kill_process(PID_SERVER);
     try_kill_process(PID_MONITOR);
+#else
+    win32_kill_process("ccnet-server.exe");
+    win32_kill_process("seaf-server.exe");
+    win32_kill_process("seaf-mon.exe");
+#endif
 }
 
 static void
@@ -528,6 +576,7 @@ seaf_controller_start ()
     return 0;
 }
 
+#ifndef WIN32
 static void
 sigint_handler (int signo)
 {
@@ -551,6 +600,7 @@ set_signal_handlers ()
     signal (SIGCHLD, sigchld_handler);
     signal (SIGPIPE, SIG_IGN);
 }
+#endif
 
 static void
 usage ()
@@ -563,13 +613,43 @@ usage ()
         );
 }
 
+#ifdef WIN32
+/* Get the commandline arguments in unicode, then convert them to utf8  */
+static char **
+get_argv_utf8 (int *argc)
+{
+    int i = 0;
+    char **argv = NULL;
+    const wchar_t *cmdline = NULL;
+    wchar_t **argv_w = NULL;
+
+    cmdline = GetCommandLineW();
+    argv_w = CommandLineToArgvW (cmdline, argc);
+    if (!argv_w) {
+        printf("failed to CommandLineToArgvW(), GLE=%lu\n", GetLastError());
+        return NULL;
+    }
+
+    argv = (char **)malloc (sizeof(char*) * (*argc));
+    for (i = 0; i < *argc; i++) {
+        argv[i] = wchar_to_utf8 (argv_w[i]);
+    }
+
+    return argv;
+}
+#endif
+
 int main (int argc, char **argv)
 {
+#ifdef WIN32
+    argv = get_argv_utf8 (&argc);
+#endif
+
     if (argc <= 1) {
         usage ();
         exit (1);
     }
-    
+
     char *bin_dir = NULL;
     char *config_dir = DEFAULT_CONFIG_DIR;
     char *seafile_dir = NULL;
@@ -621,8 +701,10 @@ int main (int argc, char **argv)
         }
     }
 
+#ifndef WIN32
     if (daemon_mode)
         daemon (1, 0);
+#endif
 
     g_type_init ();
 #if !GLIB_CHECK_VERSION(2,32,0)
@@ -655,9 +737,11 @@ int main (int argc, char **argv)
         controller_exit (1);
     }
 
+#ifndef WIN32
     set_signal_handlers ();
+#endif
 
-    if (ctl->bin_dir) 
+    if (ctl->bin_dir)
         set_path_env (ctl->bin_dir);
 
     if (seaf_controller_start (ctl) < 0)
